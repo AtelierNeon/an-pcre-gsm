@@ -67,14 +67,17 @@
 # 2013-11-05 PH added support for PARENS_NEST_LIMIT
 # 2016-03-01 PH applied Chris Wilson's patch for MSVC static build
 # 2016-06-24 PH applied Chris Wilson's revised patch (adds a separate option)
+# 2021-06-14 PH changed CMAKE_MODULE_PATH definition to add, not replace
+# 2021-06-14 PH applied Wolfgang Stöggl's patch for generating pcre-config and
+#            libpcre*.pc files (Bugzilla #2583)
 
 PROJECT(PCRE LANGUAGES C CXX
-        VERSION "8.43.0")
+        VERSION "8.45.0")
 
-# Increased minimum to 2.8.0 to support newer add_test features. Set policy
+# Increased minimum to 2.8.5 to support GNUInstallDirs. Set policy
 # CMP0026 to avoid warnings for the use of LOCATION in GET_TARGET_PROPERTY.
 
-CMAKE_MINIMUM_REQUIRED(VERSION 2.8.0...3.15.0)
+CMAKE_MINIMUM_REQUIRED(VERSION 2.8.5...3.15.0)
 CMAKE_POLICY(SET CMP0026 OLD)
 
 ## Separate version number into 4 parts
@@ -89,11 +92,19 @@ ENDIF(_my_list_len EQUAL 4)
 
 MESSAGE(STATUS "PCRE version ${PROJECT_VERSION}")
 
-SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}") # for FindReadline.cmake
+# For FindReadline.cmake. This was changed to allow setting CMAKE_MODULE_PATH
+# on the command line.
+# SET(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake) # for FindReadline.cmake
+
+LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # external packages
 FIND_PACKAGE( BZip2 )
-FIND_PACKAGE( ZLIB )
+SET(ZLIB_USE_STATIC_LIBS ON)
+FIND_PACKAGE( SiblingZLIB )
+IF(NOT ZLIB_FOUND)
+  FIND_PACKAGE( ZLIB )
+ENDIF()
 FIND_PACKAGE( Readline )
 FIND_PACKAGE( Editline )
 
@@ -103,6 +114,7 @@ INCLUDE(CheckIncludeFile)
 INCLUDE(CheckIncludeFileCXX)
 INCLUDE(CheckFunctionExists)
 INCLUDE(CheckTypeSize)
+INCLUDE(GNUInstallDirs) # for CMAKE_INSTALL_LIBDIR
 
 CHECK_INCLUDE_FILE(dirent.h     HAVE_DIRENT_H)
 CHECK_INCLUDE_FILE(stdint.h     HAVE_STDINT_H)
@@ -450,7 +462,7 @@ foreach(configure_line ${configure_lines})
     foreach(_substitution_variable ${SEARCHED_VARIABLES})
         string(TOUPPER ${_substitution_variable} _substitution_variable_upper)
         if (NOT ${_substitution_variable_upper})
-            string(REGEX MATCH "m4_define\\(${_substitution_variable}, \\[(.*)\\]" MACTHED_STRING ${configure_line})
+            string(REGEX MATCH "m4_define\\(${_substitution_variable}, \\[(.*)\\]" MATCHED_STRING ${configure_line})
             if (CMAKE_MATCH_1)
                 set(${_substitution_variable_upper} ${CMAKE_MATCH_1})
             endif()
@@ -462,8 +474,6 @@ CONFIGURE_FILE(pcre.h.in
                ${PROJECT_BINARY_DIR}/pcre.h
                @ONLY)
 
-# What about pcre-config and libpcre.pc?
-
 IF(PCRE_BUILD_PCRECPP)
         CONFIGURE_FILE(pcre_stringpiece.h.in
                        ${PROJECT_BINARY_DIR}/pcre_stringpiece.h
@@ -473,6 +483,49 @@ IF(PCRE_BUILD_PCRECPP)
                        ${PROJECT_BINARY_DIR}/pcrecpparg.h
                        @ONLY)
 ENDIF(PCRE_BUILD_PCRECPP)
+
+# Generate pkg-config files
+SET(PACKAGE_VERSION "${PCRE_MAJOR}.${PCRE_MINOR}")
+SET(prefix "${CMAKE_INSTALL_PREFIX}")
+SET(exec_prefix "\${prefix}")
+SET(libdir "\${exec_prefix}/${CMAKE_INSTALL_LIBDIR}")
+SET(includedir "\${prefix}/include")
+IF(NOT BUILD_SHARED_LIBS)
+        SET(PCRE_STATIC_CFLAG "-DPCRE_STATIC")
+ENDIF(NOT BUILD_SHARED_LIBS)
+# TO-DO: @PTHREAD_CFLAGS@ @PTHREAD_LIBS@
+
+CONFIGURE_FILE(libpcreposix.pc.in ${PROJECT_BINARY_DIR}/libpcreposix.pc @ONLY)
+
+IF(PCRE_BUILD_PCRE8)
+  CONFIGURE_FILE(libpcre.pc.in ${PROJECT_BINARY_DIR}/libpcre.pc @ONLY)
+  SET(enable_pcre8 "yes")
+ELSE()
+  SET(enable_pcre8 "no")
+ENDIF()
+
+IF(PCRE_BUILD_PCRE16)
+  CONFIGURE_FILE(libpcre16.pc.in ${PROJECT_BINARY_DIR}/libpcre16.pc @ONLY)
+  SET(enable_pcre16 "yes")
+ELSE()
+  SET(enable_pcre16 "no")
+ENDIF()
+
+IF(PCRE_BUILD_PCRE32)
+  CONFIGURE_FILE(libpcre32.pc.in ${PROJECT_BINARY_DIR}/libpcre32.pc @ONLY)
+  SET(enable_pcre32 "yes")
+ELSE()
+  SET(enable_pcre32 "no")
+ENDIF()
+
+IF(PCRE_BUILD_PCRECPP)
+  CONFIGURE_FILE(libpcrecpp.pc.in ${PROJECT_BINARY_DIR}/libpcrecpp.pc @ONLY)
+  SET(enable_cpp "yes")
+ELSE()
+  SET(enable_cpp "no")
+ENDIF()
+
+CONFIGURE_FILE(pcre-config.in pcre-config @ONLY)
 
 # Character table generation
 
@@ -1008,8 +1061,8 @@ SET(CMAKE_INSTALL_ALWAYS 1)
 
 INSTALL(TARGETS ${targets}
         RUNTIME DESTINATION bin
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib)
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 IF(NOT PCRE_WITHOUT_INSTALL_HEADERS AND NOT PCRE_WITHOUT_INSTALL_ALL)
   INSTALL(FILES ${PCRE_HEADERS} ${PCREPOSIX_HEADERS} DESTINATION include)
@@ -1018,6 +1071,7 @@ ENDIF()
 FILE(GLOB html ${PROJECT_SOURCE_DIR}/doc/html/*.html)
 FILE(GLOB man1 ${PROJECT_SOURCE_DIR}/doc/*.1)
 FILE(GLOB man3 ${PROJECT_SOURCE_DIR}/doc/*.3)
+FILE(GLOB pc ${PROJECT_BINARY_DIR}/*.pc)
 
 IF(PCRE_BUILD_PCRECPP)
   IF(NOT PCRE_WITHOUT_INSTALL_HEADERS AND NOT PCRE_WITHOUT_INSTALL_ALL)
@@ -1070,7 +1124,7 @@ IF(PCRE_SHOW_REPORT)
   ENDIF(CMAKE_CXX_FLAGS)
   MESSAGE(STATUS "")
   MESSAGE(STATUS "")
-  MESSAGE(STATUS "PCRE configuration summary:")
+  MESSAGE(STATUS "PCRE-${PCRE_MAJOR}.${PCRE_MINOR} configuration summary:")
   MESSAGE(STATUS "")
   MESSAGE(STATUS "  Install prefix .................. : ${CMAKE_INSTALL_PREFIX}")
   MESSAGE(STATUS "  C compiler ...................... : ${CMAKE_C_COMPILER}")
