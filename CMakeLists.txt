@@ -78,7 +78,7 @@ PROJECT(PCRE LANGUAGES C CXX
 # CMP0026 to avoid warnings for the use of LOCATION in GET_TARGET_PROPERTY.
 
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.5...3.15.0)
-#CMAKE_POLICY(SET CMP0026 OLD)
+CMAKE_POLICY(SET CMP0026 OLD)
 
 ## Separate version number into 4 parts
 STRING(REGEX MATCHALL "[0-9]+" _my_ver_LIST "${PROJECT_VERSION}")
@@ -553,20 +553,20 @@ CONFIGURE_FILE(pcre-config.in pcre-config @ONLY)
 
 # Character table generation
 
-#OPTION(PCRE_REBUILD_CHARTABLES "Rebuild char tables" OFF)
-#IF(PCRE_REBUILD_CHARTABLES)
-#  ADD_EXECUTABLE(dftables dftables.c)
-#
-#  GET_TARGET_PROPERTY(DFTABLES_EXE dftables LOCATION)
-#
-#  ADD_CUSTOM_COMMAND(
-#    COMMENT "Generating character tables (pcre_chartables.c) for current locale"
-#    DEPENDS dftables
-#    COMMAND ${DFTABLES_EXE}
-#    ARGS        ${PROJECT_BINARY_DIR}/pcre_chartables.c
-#    OUTPUT      ${PROJECT_BINARY_DIR}/pcre_chartables.c
-#  )
-#ELSE(PCRE_REBUILD_CHARTABLES)
+OPTION(PCRE_REBUILD_CHARTABLES "Rebuild char tables" OFF)
+IF(PCRE_REBUILD_CHARTABLES)
+  ADD_EXECUTABLE(dftables dftables.c)
+
+  GET_TARGET_PROPERTY(DFTABLES_EXE dftables LOCATION)
+
+  ADD_CUSTOM_COMMAND(
+    COMMENT "Generating character tables (pcre_chartables.c) for current locale"
+    DEPENDS dftables
+    COMMAND ${DFTABLES_EXE}
+    ARGS        ${PROJECT_BINARY_DIR}/pcre_chartables.c
+    OUTPUT      ${PROJECT_BINARY_DIR}/pcre_chartables.c
+  )
+ELSE(PCRE_REBUILD_CHARTABLES)
   CONFIGURE_FILE(${PROJECT_SOURCE_DIR}/pcre_chartables.c.dist
                     ${PROJECT_BINARY_DIR}/pcre_chartables.c
                     COPYONLY)
